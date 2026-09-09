@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# SUMO
+sumo/network/*.net.xml
+sumo/network/*.rou.xml
+sumo/network/*.sumocfg
+sumo/network/summary.xml
+sumo/network/*.log
+
+# Experiments
+experiments/results/*.json
+experiments/results/*.png
+experiments/results/*.log
+experiments/results/coordinated_model_*
+experiments/results/checkpoint_*
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# OS
+.DS_Store
+Thumbs.db

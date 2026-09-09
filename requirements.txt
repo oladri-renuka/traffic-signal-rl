@@ -1,0 +1,10 @@
+SUMO>=1.14.0
+ray[rllib]>=2.20.0
+torch>=2.0.0
+pettingzoo>=1.24.0
+numpy
+pandas
+scipy
+matplotlib
+seaborn
+streamlit>=1.30.0
