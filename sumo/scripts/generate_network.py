@@ -8,10 +8,56 @@ import os
 import subprocess
 import random
 import math
+import shutil
 from pathlib import Path
 
-SUMO_HOME = os.getenv('SUMO_HOME', '/usr/share/sumo')
-NETGENERATE = os.path.join(SUMO_HOME, 'bin', 'netgenerate')
+# Detect SUMO installation
+SUMO_HOME = None
+NETGENERATE = None
+
+# 1. Try conda installation
+try:
+    import sumo as sumo_module
+    conda_sumo_home = sumo_module.SUMO_HOME
+    if os.path.exists(conda_sumo_home):
+        SUMO_HOME = conda_sumo_home
+        NETGENERATE = os.path.join(SUMO_HOME, 'bin', 'netgenerate')
+except:
+    pass
+
+# 2. Try environment variable
+if not NETGENERATE:
+    env_sumo_home = os.getenv('SUMO_HOME')
+    if env_sumo_home and os.path.exists(env_sumo_home):
+        SUMO_HOME = env_sumo_home
+        NETGENERATE = os.path.join(SUMO_HOME, 'bin', 'netgenerate')
+
+# 3. Try which command
+if not NETGENERATE:
+    netgen_path = shutil.which('netgenerate')
+    if netgen_path:
+        NETGENERATE = netgen_path
+
+# 4. Fallback paths
+if not NETGENERATE:
+    fallback_paths = [
+        '/opt/anaconda3/lib/python3.13/site-packages/sumo/bin/netgenerate',
+        '/opt/homebrew/opt/sumo/share/sumo/bin/netgenerate',
+        '/usr/share/sumo/bin/netgenerate',
+        '/usr/bin/netgenerate',
+    ]
+    for path in fallback_paths:
+        if os.path.exists(path):
+            NETGENERATE = path
+            SUMO_HOME = os.path.dirname(os.path.dirname(path))
+            break
+
+if not NETGENERATE:
+    raise RuntimeError(
+        f"netgenerate not found. SUMO_HOME={SUMO_HOME}\n"
+        "Install SUMO: pip install eclipse-sumo  OR  brew install sumo"
+    )
+
 OUTPUT_DIR = Path(__file__).parent.parent / 'network'
 
 
