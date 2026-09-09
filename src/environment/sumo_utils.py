@@ -84,10 +84,14 @@ class TraCIManager:
             env['SUMO_HOME'] = SUMO_HOME
             logger.debug(f"SUMO_HOME={SUMO_HOME}")
 
+            # Don't redirect stdout/stderr - it interferes with TraCI initialization
+            # Redirect to /dev/null instead if we want quiet mode
+            devnull = open(os.devnull, 'w') if not verbose else None
+
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
-                stdout=subprocess.PIPE if not verbose else None,
-                stderr=subprocess.PIPE if not verbose else None,
+                stdout=devnull,
+                stderr=devnull,
                 env=env
             )
 
