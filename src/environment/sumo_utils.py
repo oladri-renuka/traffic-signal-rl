@@ -76,10 +76,18 @@ class TraCIManager:
                 sumo_cmd.append('--quiet')
 
             logger.info(f"Starting SUMO on port {port}...")
+
+            # Set SUMO_HOME in subprocess environment
+            env = os.environ.copy()
+            from src.utils.sumo_config import SUMO_HOME as config_sumo_home
+            if config_sumo_home:
+                env['SUMO_HOME'] = config_sumo_home
+
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
                 stdout=subprocess.PIPE if not verbose else None,
                 stderr=subprocess.PIPE if not verbose else None,
+                env=env,
                 preexec_fn=None
             )
 
