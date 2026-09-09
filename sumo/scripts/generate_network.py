@@ -67,6 +67,9 @@ def generate_grid_network():
 
     net_file = OUTPUT_DIR / 'grid_4x4.net.xml'
 
+    print(f"\n🌐 Generating 4×4 grid network...")
+    print(f"  - Using netgenerate: {NETGENERATE}")
+
     # netgenerate command: creates 4x4 grid with 100m road segments
     cmd = [
         NETGENERATE,
@@ -78,14 +81,14 @@ def generate_grid_network():
         '-o', str(net_file)
     ]
 
-    print(f"Generating network with command: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error generating network: {result.stderr}")
+        print(f"  ✗ Error: {result.stderr}")
         raise RuntimeError(f"netgenerate failed: {result.stderr}")
 
-    print(f"Network generated successfully: {net_file}")
+    print(f"  ✓ Generated 4×4 grid (16 intersections, 64 roads)")
+    print(f"    File: {net_file}")
     return str(net_file)
 
 
@@ -95,6 +98,8 @@ def generate_traffic_demand():
     Creates routes and vehicle definitions.
     """
     rou_file = OUTPUT_DIR / 'grid_4x4.rou.xml'
+
+    print(f"\n📍 Generating traffic demand...")
 
     # Seed for reproducibility
     random.seed(42)
@@ -115,6 +120,8 @@ def generate_traffic_demand():
                 edges.append(f'{i}_{j}_{i+1}_{j}')
                 edges.append(f'{i+1}_{j}_{i}_{j}')  # reverse
 
+    print(f"  - Found {len(edges)} edges")
+
     with open(rou_file, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         f.write('<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">\n')
@@ -128,7 +135,12 @@ def generate_traffic_demand():
         vehicle_id = 0
         total_time = 3600  # 1 hour simulation
 
+        print(f"  - Generating Poisson traffic (1 hour = 3600 seconds)...")
         for t in range(0, total_time, 1):  # check every second
+            # Progress
+            if t % 600 == 0:  # Every 10 minutes
+                print(f"    {t//60:2d}m / 60m: {vehicle_id:5d} vehicles so far")
+
             # Determine if peak hour
             hour = (t / 3600) % 24
             if 8 <= hour < 9 or 17 <= hour < 18:
@@ -157,7 +169,8 @@ def generate_traffic_demand():
 
         f.write('</routes>\n')
 
-    print(f"Traffic demand generated: {rou_file} ({vehicle_id} vehicles)")
+    print(f"  ✓ Traffic demand generated: {vehicle_id} vehicles")
+    print(f"    File: {rou_file}")
     return str(rou_file)
 
 
@@ -166,6 +179,8 @@ def generate_sumo_config():
     cfg_file = OUTPUT_DIR / 'grid_4x4.sumocfg'
     net_file = 'grid_4x4.net.xml'
     rou_file = 'grid_4x4.rou.xml'
+
+    print(f"\n⚙️  Generating SUMO configuration...")
 
     with open(cfg_file, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -188,18 +203,37 @@ def generate_sumo_config():
         f.write('  </output>\n')
         f.write('</configuration>\n')
 
-    print(f"SUMO config generated: {cfg_file}")
+    print(f"  ✓ SUMO config created (3600 second simulation)")
+    print(f"    File: {cfg_file}")
     return str(cfg_file)
 
 
 if __name__ == '__main__':
-    print("Generating SUMO 4x4 grid network...")
-    net_file = generate_grid_network()
-    print(f"\nGenerating traffic demand...")
-    rou_file = generate_traffic_demand()
-    print(f"\nGenerating SUMO configuration...")
-    cfg_file = generate_sumo_config()
-    print(f"\nSuccess! Network files ready in: {OUTPUT_DIR}")
-    print(f"  - Network: {net_file}")
-    print(f"  - Routes: {rou_file}")
-    print(f"  - Config: {cfg_file}")
+    print("\n" + "="*60)
+    print("  SUMO Network Generator for Traffic Signal RL")
+    print("="*60)
+
+    try:
+        net_file = generate_grid_network()
+        rou_file = generate_traffic_demand()
+        cfg_file = generate_sumo_config()
+
+        print("\n" + "="*60)
+        print("  ✓ SUCCESS! Network ready for simulation")
+        print("="*60)
+        print(f"\n📂 Output directory: {OUTPUT_DIR}")
+        print(f"   - Network:  grid_4x4.net.xml  (4×4 grid)")
+        print(f"   - Routes:   grid_4x4.rou.xml  (Poisson traffic)")
+        print(f"   - Config:   grid_4x4.sumocfg  (3600s simulation)")
+        print(f"\n🚗 Traffic profile:")
+        print(f"   - Off-peak: ~0.4 vehicles/sec (1440/hour)")
+        print(f"   - Peak:     ~0.8 vehicles/sec (2880/hour)")
+        print(f"   - Random O/D pairs across 4×4 grid")
+        print(f"\n✅ Next: Run baseline evaluation or training")
+        print(f"   python experiments/eval_baselines.py")
+        print("="*60 + "\n")
+
+    except Exception as e:
+        print(f"\n✗ ERROR: {e}")
+        print("="*60 + "\n")
+        exit(1)
