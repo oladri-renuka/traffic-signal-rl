@@ -10,6 +10,7 @@ import random
 import math
 import shutil
 from pathlib import Path
+import numpy as np
 
 # Detect SUMO installation
 SUMO_HOME = None
@@ -149,7 +150,7 @@ def generate_traffic_demand():
                 lambda_rate = 0.4  # ~0.4 vehicles/sec = 1440 vehicles/hour off-peak
 
             # Poisson process: probability of arrival in this second
-            num_arrivals = random.poisson(lambda_rate)
+            num_arrivals = int(np.random.poisson(lambda_rate))
             for _ in range(num_arrivals):
                 if len(edges) > 1:
                     from_edge = random.choice(edges)
