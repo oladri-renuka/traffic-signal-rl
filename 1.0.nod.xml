@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2026-09-09T07:02:43.092395-05:00 by Eclipse SUMO netgenerate 1.27.1
+<netgenerateConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netgenerateConfiguration.xsd">
+
+    <grid_network>
+        <grid value="true"/>
+        <grid.number value="4"/>
+        <grid.length value="100"/>
+        <grid.attach-length value="0"/>
+    </grid_network>
+
+    <output>
+        <output-file value="/Users/renukaoladri/Downloads/traffic_signal_rl/sumo/network/grid_4x4.net.xml"/>
+        <plain-output-prefix value="1.0"/>
+    </output>
+
+</netgenerateConfiguration>
+-->
+
+<nodes version="1.20" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/nodes_file.xsd">
+    <location netOffset="0.00,0.00" convBoundary="0.00,0.00,300.00,300.00" origBoundary="0.00,0.00,300.00,300.00" projParameter="!"/>
+
+    <node id="A0" x="0.00" y="0.00" type="priority"/>
+    <node id="A1" x="0.00" y="100.00" type="priority"/>
+    <node id="A2" x="0.00" y="200.00" type="priority"/>
+    <node id="A3" x="0.00" y="300.00" type="priority"/>
+    <node id="B0" x="100.00" y="0.00" type="priority"/>
+    <node id="B1" x="100.00" y="100.00" type="priority"/>
+    <node id="B2" x="100.00" y="200.00" type="priority"/>
+    <node id="B3" x="100.00" y="300.00" type="priority"/>
+    <node id="C0" x="200.00" y="0.00" type="priority"/>
+    <node id="C1" x="200.00" y="100.00" type="priority"/>
+    <node id="C2" x="200.00" y="200.00" type="priority"/>
+    <node id="C3" x="200.00" y="300.00" type="priority"/>
+    <node id="D0" x="300.00" y="0.00" type="priority"/>
+    <node id="D1" x="300.00" y="100.00" type="priority"/>
+    <node id="D2" x="300.00" y="200.00" type="priority"/>
+    <node id="D3" x="300.00" y="300.00" type="priority"/>
+</nodes>

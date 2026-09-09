@@ -3,10 +3,54 @@
 import os
 from pathlib import Path
 
-# SUMO paths
-SUMO_HOME = os.getenv('SUMO_HOME', '/usr/share/sumo')
-SUMO_BINARY = os.path.join(SUMO_HOME, 'bin', 'sumo')
-SUMO_GUI = os.path.join(SUMO_HOME, 'bin', 'sumo-gui')
+# SUMO paths - auto-detect from conda, env var, or fallback
+import shutil
+
+SUMO_HOME = None
+SUMO_BINARY = None
+
+# Try conda installation
+try:
+    import sumo as sumo_module
+    conda_home = sumo_module.SUMO_HOME
+    if os.path.exists(conda_home):
+        SUMO_HOME = conda_home
+        SUMO_BINARY = os.path.join(SUMO_HOME, 'bin', 'sumo')
+except:
+    pass
+
+# Try environment variable
+if not SUMO_BINARY:
+    env_home = os.getenv('SUMO_HOME')
+    if env_home and os.path.exists(env_home):
+        SUMO_HOME = env_home
+        SUMO_BINARY = os.path.join(SUMO_HOME, 'bin', 'sumo')
+
+# Try which command
+if not SUMO_BINARY:
+    sumo_path = shutil.which('sumo')
+    if sumo_path:
+        SUMO_BINARY = sumo_path
+        SUMO_HOME = os.path.dirname(os.path.dirname(sumo_path))
+
+# Fallback paths
+if not SUMO_BINARY:
+    fallback_paths = [
+        '/opt/anaconda3/lib/python3.13/site-packages/sumo/bin/sumo',
+        '/opt/homebrew/opt/sumo/share/sumo/bin/sumo',
+        '/usr/bin/sumo',
+        '/usr/share/sumo/bin/sumo',
+    ]
+    for path in fallback_paths:
+        if os.path.exists(path):
+            SUMO_BINARY = path
+            SUMO_HOME = os.path.dirname(os.path.dirname(path))
+            break
+
+if not SUMO_BINARY:
+    raise RuntimeError(f"SUMO binary not found. Install: pip install eclipse-sumo")
+
+SUMO_GUI = SUMO_BINARY.replace('sumo', 'sumo-gui')
 
 # Network configuration
 NETWORK_DIR = Path(__file__).parent.parent.parent / 'sumo' / 'network'
