@@ -99,29 +99,40 @@ def generate_traffic_demand():
     Creates routes and vehicle definitions.
     """
     rou_file = OUTPUT_DIR / 'grid_4x4.rou.xml'
+    net_file = OUTPUT_DIR / 'grid_4x4.net.xml'
 
     print(f"\n📍 Generating traffic demand...")
 
     # Seed for reproducibility
     random.seed(42)
 
-    # Define grid intersections (4x4)
-    grid_size = 4
-    intersections = [f'{i}_{j}' for i in range(grid_size) for j in range(grid_size)]
+    # Read edges from the generated network file
     edges = []
+    try:
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(net_file)
+        root = tree.getroot()
+        for edge in root.findall('.//edge'):
+            edge_id = edge.get('id')
+            if edge_id and not edge_id.startswith(':'):  # Skip junction edges
+                edges.append(edge_id)
+        print(f"  - Found {len(edges)} edges from network")
+    except Exception as e:
+        print(f"  ⚠ Warning: Could not read edges from network: {e}")
+        print(f"  - Using fallback edge generation")
+        # Fallback: generate grid edges
+        grid_size = 4
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if j < grid_size - 1:
+                    edges.append(f'{i}_{j}_{i}_{j+1}')
+                    edges.append(f'{i}_{j+1}_{i}_{j}')
+                if i < grid_size - 1:
+                    edges.append(f'{i}_{j}_{i+1}_{j}')
+                    edges.append(f'{i+1}_{j}_{i}_{j}')
 
-    # Collect all edges from the network
-    # For a 4x4 grid: horizontal and vertical edges
-    for i in range(grid_size):
-        for j in range(grid_size):
-            if j < grid_size - 1:  # horizontal edges (East-West)
-                edges.append(f'{i}_{j}_{i}_{j+1}')
-                edges.append(f'{i}_{j+1}_{i}_{j}')  # reverse
-            if i < grid_size - 1:  # vertical edges (North-South)
-                edges.append(f'{i}_{j}_{i+1}_{j}')
-                edges.append(f'{i+1}_{j}_{i}_{j}')  # reverse
-
-    print(f"  - Found {len(edges)} edges")
+    if not edges:
+        raise RuntimeError("No edges found in network. Network generation may have failed.")
 
     with open(rou_file, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
