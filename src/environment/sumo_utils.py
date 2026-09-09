@@ -71,11 +71,7 @@ class TraCIManager:
                 '--remote-port', str(port),
                 '--seed', '42',
                 '--no-warnings',
-                '--error-log', '/dev/null' if not verbose else '/tmp/sumo_error.log',
             ]
-
-            if not verbose:
-                sumo_cmd.append('--quiet')
 
             logger.info(f"Starting SUMO on port {port}...")
 
