@@ -68,28 +68,40 @@ class TraCIManager:
                 '-c', str(SUMO_CONFIG_FILE),
                 '--remote-port', str(port),
                 '--seed', '42',
+                '--no-warnings',
+                '--error-log', '/dev/null' if not verbose else '/tmp/sumo_error.log',
             ]
 
             if not verbose:
                 sumo_cmd.append('--quiet')
 
-            logger.info(f"Starting SUMO: {' '.join(sumo_cmd)}")
+            logger.info(f"Starting SUMO on port {port}...")
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
                 stdout=subprocess.PIPE if not verbose else None,
-                stderr=subprocess.PIPE if not verbose else None
+                stderr=subprocess.PIPE if not verbose else None,
+                preexec_fn=None
             )
 
-            # Wait for SUMO to start
-            time.sleep(2)
+            # Wait longer for SUMO to start and listen
+            logger.info("Waiting for SUMO to initialize...")
+            time.sleep(3)
 
-            # Connect via TraCI
-            traci.init(port=port)
-            self.connection = traci
-            logger.info(f"TraCI connected on port {port}")
-            self.idle_minutes_accumulator = 0.0
-
-            return self.connection
+            # Connect via TraCI with retries
+            max_retries = 10
+            for attempt in range(max_retries):
+                try:
+                    traci.init(port=port, wait=True)
+                    self.connection = traci
+                    logger.info(f"✓ TraCI connected on port {port}")
+                    self.idle_minutes_accumulator = 0.0
+                    return self.connection
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.debug(f"Retry {attempt+1}/{max_retries}: {e}")
+                        time.sleep(1)
+                    else:
+                        raise
 
         except Exception as e:
             logger.error(f"Failed to connect to SUMO: {e}")
