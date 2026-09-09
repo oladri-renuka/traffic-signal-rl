@@ -46,6 +46,7 @@ class TraCIManager:
         self.idle_minutes_accumulator = 0.0
         self.vehicle_counter = 0
         self.edge_list = []  # Will be populated from network
+        self.tl_id_map = {}  # Maps agent_id -> actual SUMO traffic light ID
 
     def connect(self, gui=False, port=8813, verbose=False):
         """
@@ -102,6 +103,10 @@ class TraCIManager:
                     self.connection = traci
                     logger.info(f"✓ TraCI connected on port {port}")
                     self.idle_minutes_accumulator = 0.0
+
+                    # Build traffic light ID mapping
+                    self._build_tl_mapping()
+
                     return self.connection
                 except Exception as e:
                     if attempt < max_retries - 1:
@@ -242,8 +247,30 @@ class TraCIManager:
         """Reset idle time accumulator for new episode."""
         self.idle_minutes_accumulator = 0.0
 
+    def _build_tl_mapping(self) -> None:
+        """Build mapping from agent IDs to actual SUMO traffic light IDs."""
+        try:
+            tl_ids = traci.trafficlight.getIDList()
+            # Sort to ensure consistent mapping
+            tl_ids = sorted([tl for tl in tl_ids if not tl.startswith(':')])
+
+            # Map agents 0-15 to available traffic lights
+            for agent_id in range(NUM_AGENTS):
+                if agent_id < len(tl_ids):
+                    self.tl_id_map[agent_id] = tl_ids[agent_id]
+                else:
+                    logger.warning(f"Not enough traffic lights for agent {agent_id}")
+
+            logger.info(f"Mapped {len(self.tl_id_map)} agents to traffic lights")
+        except Exception as e:
+            logger.error(f"Failed to build TL mapping: {e}")
+
     def _agent_id_to_tl(self, agent_id: int) -> str:
         """Convert agent ID to SUMO traffic light ID."""
+        # Use pre-built mapping if available
+        if agent_id in self.tl_id_map:
+            return self.tl_id_map[agent_id]
+        # Fallback to old naming
         row = agent_id // GRID_SIZE
         col = agent_id % GRID_SIZE
         return f'{row}_{col}'
