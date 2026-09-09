@@ -44,6 +44,8 @@ class TraCIManager:
         self.sumo_process = None
         self._initialized = True
         self.idle_minutes_accumulator = 0.0
+        self.vehicle_counter = 0
+        self.edge_list = []  # Will be populated from network
 
     def connect(self, gui=False, port=8813, verbose=False):
         """
@@ -294,3 +296,88 @@ class TraCIManager:
     def is_connected(self) -> bool:
         """Check if TraCI is connected."""
         return self.connection is not None
+
+    def add_vehicles_continuously(self, step: int) -> None:
+        """
+        Continuously add vehicles to simulation using Poisson distribution.
+        Ensures SUMO never runs out of vehicles and connection stays alive.
+
+        Args:
+            step: Current simulation step (each step = 0.1s)
+        """
+        if not self.connection:
+            return
+
+        # Get edges from network on first call
+        if not self.edge_list:
+            try:
+                self.edge_list = list(traci.edge.getIDList())
+                self.edge_list = [e for e in self.edge_list if not e.startswith(':')]
+                logger.debug(f"Loaded {len(self.edge_list)} edges for vehicle routing")
+            except Exception as e:
+                logger.error(f"Failed to get edge list: {e}")
+                return
+
+        if not self.edge_list:
+            return
+
+        # Only add vehicles every 10 steps (1 second)
+        if step % 10 != 0:
+            return
+
+        # Determine arrival rate based on time of day
+        # Simulate 1 hour: steps 0-36000 (3600s / 0.1s per step)
+        elapsed_minutes = (step * SIMULATION_TIME_STEP) / 60.0
+
+        # Peak hours: 8am-9am and 5pm-6pm
+        # In our 1-hour simulation, simulate these as peak periods
+        is_peak = False
+        if 0 <= elapsed_minutes < 15:  # First 15 min = morning peak
+            is_peak = True
+        elif 45 <= elapsed_minutes < 60:  # Last 15 min = evening peak
+            is_peak = True
+
+        # Poisson arrival rate (vehicles per step)
+        # Base: 0.03/step * 10 = 0.3/sec, Peak: 0.06/step * 10 = 0.6/sec
+        lambda_rate = 0.06 if is_peak else 0.03
+
+        # Generate Poisson arrivals
+        try:
+            num_arrivals = int(np.random.poisson(lambda_rate))
+
+            for _ in range(num_arrivals):
+                # Random O/D pair
+                from_edge = np.random.choice(self.edge_list)
+                to_edge = np.random.choice(self.edge_list)
+
+                # Ensure different edges
+                attempts = 0
+                while from_edge == to_edge and attempts < 5:
+                    to_edge = np.random.choice(self.edge_list)
+                    attempts += 1
+
+                if from_edge == to_edge:
+                    continue
+
+                # Create route if needed
+                route_id = f'route_{self.vehicle_counter}'
+                try:
+                    traci.route.add(route_id, [from_edge, to_edge])
+                except traci.TraCIException:
+                    pass  # Route might already exist
+
+                # Add vehicle
+                vehicle_id = f'veh_{self.vehicle_counter}'
+                try:
+                    traci.vehicle.add(
+                        vehID=vehicle_id,
+                        routeID=route_id,
+                        typeID='car',
+                        depart=step
+                    )
+                    self.vehicle_counter += 1
+                except traci.TraCIException as e:
+                    logger.debug(f"Could not add vehicle {vehicle_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error adding vehicles at step {step}: {e}")

@@ -120,6 +120,9 @@ class SUMOTrafficEnv(ParallelEnv):
             raise RuntimeError("Environment not initialized. Call reset() first.")
 
         try:
+            # Add vehicles continuously (keeps simulation alive)
+            self.traci_manager.add_vehicles_continuously(self.step_count)
+
             # Set phases for all agents
             for agent_id, action in actions.items():
                 agent_idx = int(agent_id.split('_')[1])
