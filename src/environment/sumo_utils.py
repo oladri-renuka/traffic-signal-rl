@@ -88,17 +88,17 @@ class TraCIManager:
             time.sleep(3)
 
             # Connect via TraCI with retries
-            max_retries = 10
+            max_retries = 15
             for attempt in range(max_retries):
                 try:
-                    traci.init(port=port, wait=True)
+                    traci.init(port=port)
                     self.connection = traci
                     logger.info(f"✓ TraCI connected on port {port}")
                     self.idle_minutes_accumulator = 0.0
                     return self.connection
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        logger.debug(f"Retry {attempt+1}/{max_retries}: {e}")
+                        logger.debug(f"Retry {attempt+1}/{max_retries}: {type(e).__name__}")
                         time.sleep(1)
                     else:
                         raise
