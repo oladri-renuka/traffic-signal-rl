@@ -12,10 +12,12 @@ try:
 except ImportError:
     traci = None
 
+import shutil as _shutil
+
 from src.utils.logger import get_logger
 from src.utils.sumo_config import (
     SUMO_BINARY, SUMO_CONFIG_FILE, GRID_SIZE, NUM_AGENTS,
-    SIMULATION_TIME_STEP, STATE_DIMS, EPA_CO2_PER_MINUTE_KG
+    SIMULATION_TIME_STEP, STATE_DIMS, EPA_CO2_PER_MINUTE_KG, SUMO_HOME
 )
 
 logger = get_logger(__name__)
@@ -77,18 +79,16 @@ class TraCIManager:
 
             logger.info(f"Starting SUMO on port {port}...")
 
-            # Set SUMO_HOME in subprocess environment
+            # Set SUMO_HOME in subprocess environment for TraCI to work
             env = os.environ.copy()
-            from src.utils.sumo_config import SUMO_HOME as config_sumo_home
-            if config_sumo_home:
-                env['SUMO_HOME'] = config_sumo_home
+            env['SUMO_HOME'] = SUMO_HOME
+            logger.debug(f"SUMO_HOME={SUMO_HOME}")
 
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
                 stdout=subprocess.PIPE if not verbose else None,
                 stderr=subprocess.PIPE if not verbose else None,
-                env=env,
-                preexec_fn=None
+                env=env
             )
 
             # Wait longer for SUMO to start and listen
