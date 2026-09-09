@@ -84,14 +84,11 @@ class TraCIManager:
             env['SUMO_HOME'] = SUMO_HOME
             logger.debug(f"SUMO_HOME={SUMO_HOME}")
 
-            # Don't redirect stdout/stderr - it interferes with TraCI initialization
-            # Redirect to /dev/null instead if we want quiet mode
-            devnull = open(os.devnull, 'w') if not verbose else None
-
+            # Important: don't redirect stdout/stderr with PIPE
+            # It interferes with TraCI socket initialization in SUMO
+            # Let it inherit parent's streams (will appear in console)
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
-                stdout=devnull,
-                stderr=devnull,
                 env=env
             )
 
