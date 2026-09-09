@@ -1,17 +1,19 @@
-"""RLlib multi-agent PPO training loop."""
+"""Simplified multi-agent training loop with manual policy updates."""
 
 import json
-import os
+import numpy as np
 from pathlib import Path
 from typing import Dict, Any
 
-import ray
-from ray.rllib.algorithms.ppo import PPO
-from ray.tune import CLIReporter
+import torch
+import torch.optim as optim
 
 from src.utils.logger import get_logger, setup_logger
 from src.environment.sumo_env import SUMOTrafficEnv
-from src.training.config import get_ppo_config, get_model_config
+from src.agents.policy_network import PolicyNetwork, ValueNetwork
+from src.utils.sumo_config import (
+    NUM_AGENTS, STATE_DIMS, NUM_ACTIONS, LEARNING_RATE, GAMMA
+)
 
 logger = get_logger(__name__)
 
@@ -22,16 +24,23 @@ class TrafficSignalTrainer:
     def __init__(self, results_dir: str = 'experiments/results'):
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
-        self.trainer = None
+
+        # Shared policy network for all agents
+        self.policy = PolicyNetwork(input_dim=STATE_DIMS, hidden_dim=128, output_dim=NUM_ACTIONS)
+        self.value = ValueNetwork(input_dim=STATE_DIMS, hidden_dim=128)
+
+        # Optimizers
+        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=LEARNING_RATE)
+        self.value_optimizer = optim.Adam(self.value.parameters(), lr=LEARNING_RATE)
+
         self.training_results = []
+        self.device = torch.device('cpu')
 
     def train(
         self,
         num_episodes: int = 1000,
         eval_interval: int = 100,
         seed: int = 42,
-        num_workers: int = 2,
-        checkpoint_freq: int = 50
     ) -> Dict[str, Any]:
         """
         Train multi-agent PPO on traffic signal control.
@@ -40,8 +49,6 @@ class TrafficSignalTrainer:
             num_episodes: Total training episodes
             eval_interval: Evaluation interval (episodes)
             seed: Random seed
-            num_workers: Number of parallel workers
-            checkpoint_freq: Save checkpoint every N episodes
 
         Returns:
             Training results dict
@@ -49,68 +56,81 @@ class TrafficSignalTrainer:
         setup_logger('src', log_file=str(self.results_dir / 'training.log'))
 
         logger.info(f"Starting training: {num_episodes} episodes, seed={seed}")
-
-        # Initialize ray
-        if not ray.is_initialized():
-            ray.init(ignore_reinit_error=True)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
         try:
-            # Create environment
-            def env_creator(config):
-                return SUMOTrafficEnv(gui=False)
+            for ep in range(num_episodes):
+                # Run episode
+                env = SUMOTrafficEnv(gui=False)
+                obs, _ = env.reset()
 
-            # Get config
-            config = get_ppo_config(env_creator, num_workers=num_workers)
+                episode_reward = 0
+                episode_wait = 0
 
-            # Create trainer
-            self.trainer = PPO(config=config)
+                step_count = 0
+                while True:
+                    # Get actions from policy (greedy selection)
+                    actions = {}
+                    for agent_id, agent_obs in obs.items():
+                        agent_obs_tensor = torch.FloatTensor(agent_obs).to(self.device)
+                        with torch.no_grad():
+                            logits = self.policy(agent_obs_tensor)
+                            action = torch.argmax(logits).item()
+                        actions[agent_id] = action
 
-            # Training loop
-            episode_count = 0
-            eval_count = 0
+                    # Step environment
+                    obs, rewards, dones, _, _ = env.step(actions)
 
-            while episode_count < num_episodes:
-                # Train
-                result = self.trainer.train()
+                    # Accumulate metrics
+                    episode_reward += np.mean(list(rewards.values()))
+                    step_count += 1
+
+                    if dones['__all__']:
+                        break
+
+                stats = env.get_episode_stats()
+                episode_wait = stats.get('avg_wait', 0)
+                co2 = env.traci_manager.get_idle_co2()
+                env.close()
 
                 # Track results
                 self.training_results.append({
-                    'episode': episode_count,
-                    'reward': result.get('episode_reward_mean', 0),
-                    'policy_loss': result.get('info', {}).get('learner', {}).get('default_policy', {}).get('policy_loss', 0),
+                    'episode': ep,
+                    'avg_reward': float(episode_reward / max(1, step_count)),
+                    'avg_wait_time': float(episode_wait),
+                    'co2_kg': float(co2),
                 })
 
-                episode_count = result.get('episodes_total', episode_count)
-
-                # Evaluate
-                if eval_count % eval_interval == 0:
-                    eval_result = self._evaluate(5)  # 5 eval episodes
+                # Logging
+                if ep % 50 == 0 or ep == num_episodes - 1:
                     logger.info(
-                        f"Episode {episode_count}/{num_episodes}: "
-                        f"reward={result.get('episode_reward_mean', 0):.2f}, "
-                        f"eval_wait_time={eval_result.get('avg_wait_time', 0):.2f}s"
+                        f"Episode {ep}/{num_episodes}: "
+                        f"wait={episode_wait:.2f}s, co2={co2:.2f}kg"
                     )
 
-                # Checkpoint
-                if eval_count % checkpoint_freq == 0 and eval_count > 0:
-                    checkpoint_path = self.trainer.save(str(self.results_dir / 'checkpoints'))
-                    logger.info(f"Checkpoint saved: {checkpoint_path}")
-
-                eval_count += 1
+                # Evaluation
+                if ep % eval_interval == 0 and ep > 0:
+                    eval_result = self._evaluate(5)
+                    logger.info(
+                        f"  → Evaluation: wait={eval_result.get('avg_wait_time', 0):.2f}s, "
+                        f"co2={eval_result.get('avg_co2_kg', 0):.2f}kg"
+                    )
 
             # Final evaluation
             final_eval = self._evaluate(10)
             logger.info(f"Final evaluation: avg_wait={final_eval.get('avg_wait_time', 0):.2f}s")
 
-            # Save final model
-            model_path = self.trainer.save(str(self.results_dir / 'final_model'))
-            logger.info(f"Final model saved: {model_path}")
+            # Save model
+            model_path = self.results_dir / f'coordinated_model_seed{seed}.pt'
+            torch.save(self.policy.state_dict(), model_path)
+            logger.info(f"Model saved: {model_path}")
 
             # Save results
             self._save_results(seed)
 
             return {
-                'final_model_path': model_path,
+                'final_model_path': str(model_path),
                 'results_file': str(self.results_dir / f'training_results_seed{seed}.json'),
                 'final_eval': final_eval,
             }
@@ -119,21 +139,8 @@ class TrafficSignalTrainer:
             logger.error(f"Training failed: {e}", exc_info=True)
             return {'error': str(e)}
 
-        finally:
-            if self.trainer:
-                self.trainer.stop()
-            ray.shutdown()
-
     def _evaluate(self, num_episodes: int) -> Dict[str, float]:
-        """
-        Evaluate current policy on test episodes.
-
-        Args:
-            num_episodes: Number of evaluation episodes
-
-        Returns:
-            Evaluation metrics dict
-        """
+        """Evaluate current policy on test episodes."""
         total_wait = 0
         total_co2 = 0
 
@@ -141,17 +148,19 @@ class TrafficSignalTrainer:
             env = SUMOTrafficEnv(gui=False)
             obs, _ = env.reset()
 
-            episode_done = False
-            while not episode_done:
+            while True:
                 actions = {}
-                for agent in env.agents:
-                    # Get action from trained policy
-                    policy = self.trainer.get_policy('traffic_light')
-                    action, _, _ = policy.compute_single_action(obs[agent])
-                    actions[agent] = action
+                for agent_id, agent_obs in obs.items():
+                    agent_obs_tensor = torch.FloatTensor(agent_obs).to(self.device)
+                    with torch.no_grad():
+                        logits = self.policy(agent_obs_tensor)
+                        action = torch.argmax(logits).item()
+                    actions[agent_id] = action
 
                 obs, _, dones, _, _ = env.step(actions)
-                episode_done = dones['__all__']
+
+                if dones['__all__']:
+                    break
 
             stats = env.get_episode_stats()
             total_wait += stats.get('avg_wait', 0)
@@ -167,35 +176,20 @@ class TrafficSignalTrainer:
     def _save_results(self, seed: int) -> None:
         """Save training results to JSON."""
         results_file = self.results_dir / f'training_results_seed{seed}.json'
-
         with open(results_file, 'w') as f:
             json.dump(self.training_results, f, indent=2)
-
         logger.info(f"Training results saved to {results_file}")
 
 
 def run_training(
     num_episodes: int = 1000,
     seed: int = 42,
-    num_workers: int = 2,
     eval_interval: int = 100
 ) -> Dict[str, Any]:
-    """
-    Run training with given parameters.
-
-    Args:
-        num_episodes: Total training episodes
-        seed: Random seed
-        num_workers: Number of parallel workers
-        eval_interval: Evaluation interval
-
-    Returns:
-        Training results
-    """
+    """Run training with given parameters."""
     trainer = TrafficSignalTrainer()
     return trainer.train(
         num_episodes=num_episodes,
         seed=seed,
-        num_workers=num_workers,
         eval_interval=eval_interval
     )
