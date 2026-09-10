@@ -63,7 +63,7 @@ OUTPUT_DIR = Path(__file__).parent.parent / 'network'
 
 
 def generate_grid_network():
-    """Generate a 4x4 grid network using netgenerate."""
+    """Generate a 4x4 grid network using netgenerate, then add traffic lights."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     net_file = OUTPUT_DIR / 'grid_4x4.net.xml'
@@ -89,100 +89,105 @@ def generate_grid_network():
         raise RuntimeError(f"netgenerate failed: {result.stderr}")
 
     print(f"  ✓ Generated 4×4 grid (16 intersections, 64 roads)")
+
+    # Add traffic lights to all interior intersections
+    _add_traffic_lights(net_file)
+
     print(f"    File: {net_file}")
     return str(net_file)
 
 
+def _add_traffic_lights(net_file):
+    """Add traffic light definitions to grid intersections."""
+    import xml.etree.ElementTree as ET
+
+    print(f"  - Adding traffic lights to intersections...")
+
+    tree = ET.parse(net_file)
+    root = tree.getroot()
+
+    # Get all junction IDs
+    junctions = root.findall('.//junction')
+    junction_ids = [j.get('id') for j in junctions if j.get('type') == 'internal' or j.get('type') != 'dead_end']
+
+    # Filter to 4x4 grid junctions (A0-A3, B0-B3, C0-C3, D0-D3 from netgenerate)
+    # These follow pattern: letter(A-D) + number(0-3)
+    grid_junctions = []
+    for jid in junction_ids:
+        if len(jid) == 2 and jid[0] in 'ABCD' and jid[1] in '0123':
+            grid_junctions.append(jid)
+
+    grid_junctions.sort()
+    print(f"    Found {len(grid_junctions)} grid junctions: {grid_junctions[:8]}...")
+
+    if len(grid_junctions) != 16:
+        print(f"    ⚠ Warning: Expected 16 grid junctions, found {len(grid_junctions)}")
+
+    # Add traffic light definition for each grid junction
+    tllogic_parent = root.find('.//additional')
+    if tllogic_parent is None:
+        # Create additional element if it doesn't exist
+        tllogic_parent = ET.Element('additional')
+        root.append(tllogic_parent)
+
+    for tl_id in grid_junctions:
+        # Create traffic light logic: 4 phases, each 30 seconds
+        # Phase 0: NS green (90 degrees)
+        # Phase 1: NS yellow (90 degrees)
+        # Phase 2: EW green (90 degrees)
+        # Phase 3: EW yellow (90 degrees)
+        tllogic = ET.Element('tlLogic', {
+            'id': tl_id,
+            'type': 'static',
+            'programID': '0',
+            'offset': '0'
+        })
+
+        # NS green
+        phase1 = ET.Element('phase', {'duration': '30', 'state': 'GrGr'})
+        tllogic.append(phase1)
+
+        # NS yellow
+        phase2 = ET.Element('phase', {'duration': '3', 'state': 'yryr'})
+        tllogic.append(phase2)
+
+        # EW green
+        phase3 = ET.Element('phase', {'duration': '30', 'state': 'rGrG'})
+        tllogic.append(phase3)
+
+        # EW yellow
+        phase4 = ET.Element('phase', {'duration': '3', 'state': 'ryry'})
+        tllogic.append(phase4)
+
+        tllogic_parent.append(tllogic)
+
+    # Write back
+    tree.write(net_file, encoding='UTF-8', xml_declaration=True)
+    print(f"    ✓ Added {len(grid_junctions)} traffic light definitions")
+
+
 def generate_traffic_demand():
     """
-    Generate traffic demand with Poisson arrivals and peak hours.
-    Creates routes and vehicle definitions.
+    Generate minimal traffic routes file (vehicle type only).
+    Actual vehicle injection happens continuously during simulation.
     """
     rou_file = OUTPUT_DIR / 'grid_4x4.rou.xml'
-    net_file = OUTPUT_DIR / 'grid_4x4.net.xml'
 
-    print(f"\n📍 Generating traffic demand...")
-
-    # Seed for reproducibility
-    random.seed(42)
-
-    # Read edges from the generated network file
-    edges = []
-    try:
-        import xml.etree.ElementTree as ET
-        tree = ET.parse(net_file)
-        root = tree.getroot()
-        for edge in root.findall('.//edge'):
-            edge_id = edge.get('id')
-            if edge_id and not edge_id.startswith(':'):  # Skip junction edges
-                edges.append(edge_id)
-        print(f"  - Found {len(edges)} edges from network")
-    except Exception as e:
-        print(f"  ⚠ Warning: Could not read edges from network: {e}")
-        print(f"  - Using fallback edge generation")
-        # Fallback: generate grid edges
-        grid_size = 4
-        for i in range(grid_size):
-            for j in range(grid_size):
-                if j < grid_size - 1:
-                    edges.append(f'{i}_{j}_{i}_{j+1}')
-                    edges.append(f'{i}_{j+1}_{i}_{j}')
-                if i < grid_size - 1:
-                    edges.append(f'{i}_{j}_{i+1}_{j}')
-                    edges.append(f'{i+1}_{j}_{i}_{j}')
-
-    if not edges:
-        raise RuntimeError("No edges found in network. Network generation may have failed.")
+    print(f"\n📍 Generating traffic routes file...")
 
     with open(rou_file, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         f.write('<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">\n')
 
-        # Define vehicle type
+        # Define vehicle type only
+        # Vehicles will be injected continuously during simulation
         f.write('  <vType id="car" accel="2.6" decel="4.5" sigma="0.5" length="5.0" maxSpeed="25.0" />\n')
-
-        # Generate random routes with Poisson arrivals
-        # Peak hours: 8am-9am (3600-7200s) and 5pm-6pm (57600-61200s)
-        # Off-peak: 2 vehicles per second, peak: 4 vehicles per second
-        vehicle_id = 0
-        total_time = 3600  # 1 hour simulation
-
-        print(f"  - Generating Poisson traffic (1 hour = 3600 seconds)...")
-        for t in range(0, total_time, 1):  # check every second
-            # Progress
-            if t % 600 == 0:  # Every 10 minutes
-                print(f"    {t//60:2d}m / 60m: {vehicle_id:5d} vehicles so far")
-
-            # Determine if peak hour
-            hour = (t / 3600) % 24
-            if 8 <= hour < 9 or 17 <= hour < 18:
-                lambda_rate = 0.8  # ~0.8 vehicles/sec = 2880 vehicles/hour in peak
-            else:
-                lambda_rate = 0.4  # ~0.4 vehicles/sec = 1440 vehicles/hour off-peak
-
-            # Poisson process: probability of arrival in this second
-            num_arrivals = int(np.random.poisson(lambda_rate))
-            for _ in range(num_arrivals):
-                if len(edges) > 1:
-                    from_edge = random.choice(edges)
-                    to_edge = random.choice(edges)
-
-                    # Ensure from_edge != to_edge
-                    attempts = 0
-                    while from_edge == to_edge and attempts < 5:
-                        to_edge = random.choice(edges)
-                        attempts += 1
-
-                    if from_edge != to_edge:
-                        route_id = f'route_{vehicle_id}'
-                        f.write(f'  <route id="{route_id}" edges="{from_edge} {to_edge}" />\n')
-                        f.write(f'  <vehicle id="veh_{vehicle_id}" type="car" route="{route_id}" depart="{t}" />\n')
-                        vehicle_id += 1
 
         f.write('</routes>\n')
 
-    print(f"  ✓ Traffic demand generated: {vehicle_id} vehicles")
+    print(f"  ✓ Routes file created (vehicle type defined)")
     print(f"    File: {rou_file}")
+    print(f"    Note: Vehicles injected continuously via TraCI during simulation")
     return str(rou_file)
 
 
@@ -209,11 +214,7 @@ def generate_sumo_config():
         f.write('  <processing>\n')
         f.write('    <lateral-resolution value="0.8"/>\n')
         f.write('    <collision.action value="warn"/>\n')
-        f.write('    <step-log value="false"/>\n')
         f.write('  </processing>\n')
-        f.write('  <output>\n')
-        f.write('    <summary-output value="summary.xml"/>\n')
-        f.write('  </output>\n')
         f.write('</configuration>\n')
 
     print(f"  ✓ SUMO config created (3600 second simulation)")

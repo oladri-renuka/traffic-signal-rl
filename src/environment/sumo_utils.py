@@ -373,7 +373,7 @@ class TraCIManager:
             num_arrivals = int(np.random.poisson(lambda_rate))
 
             for _ in range(num_arrivals):
-                # Random O/D pair
+                # Random O/D pair using safe routing
                 from_edge = np.random.choice(self.edge_list)
                 to_edge = np.random.choice(self.edge_list)
 
@@ -386,12 +386,13 @@ class TraCIManager:
                 if from_edge == to_edge:
                     continue
 
-                # Create route if needed
+                # Create route, skip invalid routes gracefully
                 route_id = f'route_{self.vehicle_counter}'
                 try:
                     traci.route.add(route_id, [from_edge, to_edge])
                 except traci.TraCIException:
-                    pass  # Route might already exist
+                    # Invalid route (edges not connected), skip this vehicle
+                    continue
 
                 # Add vehicle
                 vehicle_id = f'veh_{self.vehicle_counter}'
@@ -408,3 +409,17 @@ class TraCIManager:
 
         except Exception as e:
             logger.error(f"Error adding vehicles at step {step}: {e}")
+
+    def clear_vehicles(self) -> None:
+        """Clear all vehicles and reset vehicle counter (keeps SUMO running)."""
+        if not self.connection:
+            return
+
+        try:
+            vehicle_ids = traci.vehicle.getIDList()
+            for vehicle_id in vehicle_ids:
+                traci.vehicle.remove(vehicle_id)
+            self.vehicle_counter = 0
+            logger.debug(f"Cleared {len(vehicle_ids)} vehicles for episode reset")
+        except Exception as e:
+            logger.error(f"Error clearing vehicles: {e}")

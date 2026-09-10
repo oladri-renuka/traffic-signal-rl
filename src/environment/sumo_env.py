@@ -73,7 +73,7 @@ class SUMOTrafficEnv(ParallelEnv):
 
     def reset(self, seed=None):
         """
-        Reset environment for new episode.
+        Reset environment for new episode without restarting SUMO.
 
         Args:
             seed: Random seed (currently unused, handled by SUMO)
@@ -82,12 +82,12 @@ class SUMOTrafficEnv(ParallelEnv):
             Observations dict and info dict
         """
         try:
-            # Disconnect old connection if exists
-            if self.traci_manager.is_connected():
-                self.traci_manager.disconnect()
+            # Connect on first reset only
+            if not self.traci_manager.is_connected():
+                self.traci_manager.connect(gui=self.gui, verbose=False)
 
-            # Connect to SUMO
-            self.traci_manager.connect(gui=self.gui, verbose=False)
+            # Clear all vehicles and reset state (but keep SUMO running)
+            self.traci_manager.clear_vehicles()
             self.traci_manager.reset_idle_accumulator()
 
             # Reset episode counters

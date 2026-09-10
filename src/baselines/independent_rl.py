@@ -103,8 +103,6 @@ class IndependentRLBaseline:
                 if dones['__all__']:
                     break
 
-            env.close()
-
             # Compute episode metrics
             avg_reward = np.mean(list(episode_rewards.values()))
             avg_wait = np.mean(episode_wait_times) if episode_wait_times else 0.0
@@ -120,7 +118,6 @@ class IndependentRLBaseline:
 
         except Exception as e:
             logger.error(f"Error running independent RL episode: {e}")
-            env.close()
             return {
                 'episode_steps': step_count,
                 'avg_reward': 0.0,
@@ -132,7 +129,7 @@ class IndependentRLBaseline:
 
 def run_independent_rl_baseline(num_episodes: int = 10, seed: int = 42) -> List[Dict]:
     """
-    Run independent RL baseline for multiple episodes.
+    Run independent RL baseline for multiple episodes (reusing SUMO connection).
 
     Args:
         num_episodes: Number of episodes to run
@@ -146,15 +143,19 @@ def run_independent_rl_baseline(num_episodes: int = 10, seed: int = 42) -> List[
 
     logger.info(f"Starting independent RL baseline ({num_episodes} episodes)...")
 
-    for ep in range(num_episodes):
-        env = SUMOTrafficEnv(gui=False)
-        result = baseline.run_episode(env)
-        results.append(result)
+    env = SUMOTrafficEnv(gui=False)
 
-        logger.info(
-            f"Episode {ep+1}/{num_episodes}: "
-            f"avg_wait={result.get('avg_wait_time', 0):.2f}s, "
-            f"co2={result.get('co2_kg', 0):.2f}kg"
-        )
+    try:
+        for ep in range(num_episodes):
+            result = baseline.run_episode(env)
+            results.append(result)
+
+            logger.info(
+                f"Episode {ep+1}/{num_episodes}: "
+                f"avg_wait={result.get('avg_wait_time', 0):.2f}s, "
+                f"co2={result.get('co2_kg', 0):.2f}kg"
+            )
+    finally:
+        env.close()
 
     return results
