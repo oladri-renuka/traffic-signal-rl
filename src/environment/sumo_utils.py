@@ -83,12 +83,12 @@ class TraCIManager:
             env['SUMO_HOME'] = SUMO_HOME
             logger.debug(f"SUMO_HOME={SUMO_HOME}")
 
-            # Important: don't redirect stdout/stderr with PIPE
-            # It interferes with TraCI socket initialization in SUMO
-            # Let it inherit parent's streams (will appear in console)
+            # Redirect SUMO stderr to devnull to suppress routing errors
+            # These are expected when random edge pairs aren't connected
             self.sumo_process = subprocess.Popen(
                 sumo_cmd,
-                env=env
+                env=env,
+                stderr=subprocess.DEVNULL
             )
 
             # Wait longer for SUMO to start and listen
