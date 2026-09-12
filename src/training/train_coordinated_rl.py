@@ -91,9 +91,8 @@ class CoordinatedRLTrainer:
         """Train for one episode."""
         observations, _ = self.env.reset()
 
-        episode_rewards = defaultdict(list)
+        episode_rewards_per_step = []  # rewards per timestep (average across agents)
         episode_values = []
-        episode_actions = []
         episode_dones = []
         episode_obs_list = []
 
@@ -105,18 +104,21 @@ class CoordinatedRLTrainer:
             # Step environment
             next_observations, rewards, dones, _, infos = self.env.step(actions)
 
-            # Collect trajectory data
-            for agent_id in self.env.agents:
-                obs = observations[agent_id]
-                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(DEVICE)
+            # Collect trajectory data - use first agent's obs for policy (all get same input distribution)
+            first_agent = self.env.agents[0]
+            obs = observations[first_agent]
+            obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(DEVICE)
 
-                with torch.no_grad():
-                    _, value = self.policy(obs_tensor)
+            with torch.no_grad():
+                _, value = self.policy(obs_tensor)
 
-                episode_obs_list.append(obs)
-                episode_values.append(value.item())
-                episode_rewards[agent_id].append(rewards[agent_id])
-                episode_dones.append(dones.get("__all__", False))
+            episode_obs_list.append(obs)
+            episode_values.append(value.item())
+
+            # Average reward across all agents
+            avg_reward = np.mean([rewards[agent_id] for agent_id in self.env.agents])
+            episode_rewards_per_step.append(avg_reward)
+            episode_dones.append(dones.get("__all__", False))
 
             observations = next_observations
             step += 1
@@ -126,18 +128,18 @@ class CoordinatedRLTrainer:
 
         # Compute final value
         with torch.no_grad():
-            final_obs = torch.FloatTensor(list(observations.values())).to(DEVICE)
-            _, final_values = self.policy(final_obs)
+            first_agent = self.env.agents[0]
+            final_obs = torch.FloatTensor(observations[first_agent]).unsqueeze(0).to(DEVICE)
+            _, final_value = self.policy(final_obs)
 
         # Compute advantages
-        all_rewards = [episode_rewards[agent_id] for agent_id in self.env.agents for _ in range(len(episode_rewards[agent_id]))]
-        advantages = self.compute_gae(all_rewards[:len(episode_values)], episode_values, episode_dones, final_values.mean().item())
+        advantages = self.compute_gae(episode_rewards_per_step, episode_values, episode_dones, final_value.item())
 
         # Update policy (simplified PPO update)
         if len(episode_obs_list) > 0:
             batch_obs = torch.FloatTensor(np.array(episode_obs_list)).to(DEVICE)
-            batch_advantages = torch.FloatTensor(advantages).to(DEVICE)
-            batch_returns = batch_advantages + torch.FloatTensor(episode_values).to(DEVICE)
+            batch_advantages = torch.FloatTensor(np.array(advantages)).to(DEVICE)
+            batch_returns = batch_advantages + torch.FloatTensor(np.array(episode_values)).to(DEVICE)
 
             # Normalize advantages
             batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
@@ -156,23 +158,23 @@ class CoordinatedRLTrainer:
             self.optimizer.step()
 
         # Log metrics
-        avg_reward = np.mean([np.sum(episode_rewards[agent_id]) for agent_id in self.env.agents])
+        avg_episode_reward = np.mean(episode_rewards_per_step)
         stats = self.env.get_episode_stats()
 
         self.metrics['episode'].append(episode_num)
-        self.metrics['avg_reward'].append(avg_reward)
+        self.metrics['avg_reward'].append(avg_episode_reward)
         self.metrics['avg_wait'].append(stats.get('avg_wait', 0.0))
         self.metrics['co2_kg'].append(stats.get('co2_kg', 0.0))
 
         if (episode_num + 1) % 50 == 0:
             logger.info(
                 f"Episode {episode_num + 1}/{self.num_episodes}: "
-                f"avg_reward={avg_reward:.4f}, "
+                f"avg_reward={avg_episode_reward:.4f}, "
                 f"avg_wait={stats.get('avg_wait', 0.0):.2f}s, "
                 f"co2={stats.get('co2_kg', 0.0):.2f}kg"
             )
 
-        return avg_reward
+        return avg_episode_reward
 
     def train(self):
         """Train for all episodes."""
